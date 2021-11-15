@@ -29,6 +29,9 @@ type ServicesAPI interface {
 	// MessageForSend creates a prototype of a message based on SendParams
 	MessageForSend(ctx context.Context, params SendParams) (*api.MessagePrototype, error)
 
+	//multimessage for send creates a prototype of message base on multisendparams
+	MultimessageForSend(ctx context.Context, param SendParams) (*api.MessagePrototype, error)
+
 	// DecodeTypedParamsFromJSON takes in information needed to identify a method and converts JSON
 	// parameters to bytes of their CBOR encoding
 	DecodeTypedParamsFromJSON(ctx context.Context, to address.Address, method abi.MethodNum, paramstr string) ([]byte, error)
@@ -192,6 +195,52 @@ type SendParams struct {
 }
 
 func (s *ServicesImpl) MessageForSend(ctx context.Context, params SendParams) (*api.MessagePrototype, error) {
+	if params.From == address.Undef {
+		defaddr, err := s.api.WalletDefaultAddress(ctx)
+		if err != nil {
+			return nil, err
+		}
+		params.From = defaddr
+	}
+
+	msg := types.Message{
+		From:  params.From,
+		To:    params.To,
+		Value: params.Val,
+
+		Method: params.Method,
+		Params: params.Params,
+	}
+
+	if params.GasPremium != nil {
+		msg.GasPremium = *params.GasPremium
+	} else {
+		msg.GasPremium = types.NewInt(0)
+	}
+	if params.GasFeeCap != nil {
+		msg.GasFeeCap = *params.GasFeeCap
+	} else {
+		msg.GasFeeCap = types.NewInt(0)
+	}
+	if params.GasLimit != nil {
+		msg.GasLimit = *params.GasLimit
+	} else {
+		msg.GasLimit = 0
+	}
+	validNonce := false
+	if params.Nonce != nil {
+		msg.Nonce = *params.Nonce
+		validNonce = true
+	}
+
+	prototype := &api.MessagePrototype{
+		Message:    msg,
+		ValidNonce: validNonce,
+	}
+	return prototype, nil
+}
+
+func (s *ServicesImpl) MultimessageForSend(ctx context.Context, params SendParams) (*api.MessagePrototype, error) {
 	if params.From == address.Undef {
 		defaddr, err := s.api.WalletDefaultAddress(ctx)
 		if err != nil {

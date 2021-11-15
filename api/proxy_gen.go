@@ -256,6 +256,8 @@ type FullNodeStruct struct {
 
 		MpoolSelect func(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) `perm:"read"`
 
+		MpoolSelectMessages func(p0 context.Context, p1 types.TipSetKey, p2 float64, p3 miner.MinerInfo) ([]*types.SignedMessage, error) `perm:"read"`
+
 		MpoolSetConfig func(p0 context.Context, p1 *types.MpoolConfig) error `perm:"admin"`
 
 		MpoolSub func(p0 context.Context) (<-chan MpoolUpdate, error) `perm:"read"`
@@ -1863,6 +1865,17 @@ func (s *FullNodeStruct) MpoolSelect(p0 context.Context, p1 types.TipSetKey, p2 
 }
 
 func (s *FullNodeStub) MpoolSelect(p0 context.Context, p1 types.TipSetKey, p2 float64) ([]*types.SignedMessage, error) {
+	return *new([]*types.SignedMessage), ErrNotSupported
+}
+
+func (s *FullNodeStruct) MpoolSelectMessages(p0 context.Context, p1 types.TipSetKey, p2 float64, p3 miner.MinerInfo) ([]*types.SignedMessage, error) {
+	if s.Internal.MpoolSelectMessages == nil {
+		return *new([]*types.SignedMessage), ErrNotSupported
+	}
+	return s.Internal.MpoolSelectMessages(p0, p1, p2, p3)
+}
+
+func (s *FullNodeStub) MpoolSelectMessages(p0 context.Context, p1 types.TipSetKey, p2 float64, p3 miner.MinerInfo) ([]*types.SignedMessage, error) {
 	return *new([]*types.SignedMessage), ErrNotSupported
 }
 

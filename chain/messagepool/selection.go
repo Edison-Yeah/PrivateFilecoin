@@ -2,6 +2,7 @@ package messagepool
 
 import (
 	"context"
+	"crypto/sha256"
 	"math/big"
 	"math/rand"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	tbig "github.com/filecoin-project/go-state-types/big"
 
 	"github.com/filecoin-project/lotus/build"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/messagepool/gasguess"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/vm"
@@ -34,6 +36,606 @@ type msgChain struct {
 	merged       bool
 	next         *msgChain
 	prev         *msgChain
+}
+
+func (mp *MessagePool) SelectMessages_new(ctx context.Context, ts *types.TipSet, tq float64, minfos miner.MinerInfo) (msgs []*types.SignedMessage, err error) {
+	mp.curTsLk.Lock()
+	defer mp.curTsLk.Unlock()
+
+	mp.lk.Lock()
+	defer mp.lk.Unlock()
+
+	// if the ticket quality is high enough that the first block has higher probability
+	// than any other block, then we don't bother with optimal selection because the
+	// first block will always have higher effective performance
+	if tq > 0.84 {
+		msgs, err = mp.selectMessages_Greedy(ctx, mp.curTs, ts, minfos)
+	} else {
+		msgs, err = mp.selectMessages_Optimal(ctx, mp.curTs, ts, tq, minfos)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if len(msgs) > build.BlockMessageLimit {
+		msgs = msgs[:build.BlockMessageLimit]
+	}
+
+	return msgs, nil
+}
+
+func (mp *MessagePool) selectMessages_Optimal(ctx context.Context, curTs, ts *types.TipSet, tq float64, infos miner.MinerInfo) ([]*types.SignedMessage, error) {
+	start := time.Now()
+
+	baseFee, err := mp.api.ChainComputeBaseFee(context.TODO(), ts)
+	if err != nil {
+		return nil, xerrors.Errorf("computing basefee: %w", err)
+	}
+
+	// 0. Load messages from the target tipset; if it is the same as the current tipset in
+	//    the mpool, then this is just the pending messages
+	pending, err := mp.getPendingMessages(curTs, ts)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(pending) == 0 {
+		return nil, nil
+	}
+
+	// defer only here so if we have no pending messages we don't spam
+	defer func() {
+		log.Infow("message selection done", "took", time.Since(start))
+	}()
+
+	// 0b. Select all priority messages that fit in the block
+	minGas := int64(gasguess.MinGas)
+	result, gasLimit := mp.selectPriority_Messages(ctx, pending, baseFee, ts, infos)
+
+	// have we filled the block?
+	if gasLimit < minGas {
+		return result, nil
+	}
+
+	// 1. Create a list of dependent message chains with maximal gas reward per limit consumed
+	startChains := time.Now()
+	var chains []*msgChain
+	for actor, mset := range pending {
+		next := mp.createMessageChains(actor, mset, baseFee, ts)
+		chains = append(chains, next...)
+	}
+	if dt := time.Since(startChains); dt > time.Millisecond {
+		log.Infow("create message chains done", "took", dt)
+	}
+
+	// 2. Sort the chains
+	sort.Slice(chains, func(i, j int) bool {
+		return chains[i].Before(chains[j])
+	})
+
+	if len(chains) != 0 && chains[0].gasPerf < 0 {
+		log.Warnw("all messages in mpool have non-positive gas performance", "bestGasPerf", chains[0].gasPerf)
+		return result, nil
+	}
+
+	// 3. Parition chains into blocks (without trimming)
+	//    we use the full blockGasLimit (as opposed to the residual gas limit from the
+	//    priority message selection) as we have to account for what other miners are doing
+	nextChain := 0
+	partitions := make([][]*msgChain, MaxBlocks)
+	for i := 0; i < MaxBlocks && nextChain < len(chains); i++ {
+		gasLimit := int64(build.BlockGasLimit)
+		for nextChain < len(chains) {
+			chain := chains[nextChain]
+			nextChain++
+			partitions[i] = append(partitions[i], chain)
+			gasLimit -= chain.gasLimit
+			if gasLimit < minGas {
+				break
+			}
+		}
+
+	}
+
+	// 4. Compute effective performance for each chain, based on the partition they fall into
+	//    The effective performance is the gasPerf of the chain * block probability
+	blockProb := mp.blockProbabilities(tq)
+	effChains := 0
+	for i := 0; i < MaxBlocks; i++ {
+		for _, chain := range partitions[i] {
+			chain.SetEffectivePerf(blockProb[i])
+		}
+		effChains += len(partitions[i])
+	}
+
+	// nullify the effective performance of chains that don't fit in any partition
+	for _, chain := range chains[effChains:] {
+		chain.SetNullEffectivePerf()
+	}
+
+	// 5. Resort the chains based on effective performance
+	sort.Slice(chains, func(i, j int) bool {
+		return chains[i].BeforeEffective(chains[j])
+	})
+
+	// 6. Merge the head chains to produce the list of messages selected for inclusion
+	//    subject to the residual gas limit
+	//    When a chain is merged in, all its previous dependent chains *must* also be
+	//    merged in or we'll have a broken block
+	startMerge := time.Now()
+	last := len(chains)
+	for i, chain := range chains {
+		// did we run out of performing chains?
+		if chain.gasPerf < 0 {
+			break
+		}
+
+		// has it already been merged?
+		if chain.merged {
+			continue
+		}
+
+		// compute the dependencies that must be merged and the gas limit including deps
+		chainGasLimit := chain.gasLimit
+		var chainDeps []*msgChain
+		for curChain := chain.prev; curChain != nil && !curChain.merged; curChain = curChain.prev {
+			chainDeps = append(chainDeps, curChain)
+			chainGasLimit += curChain.gasLimit
+		}
+
+		// does it all fit in the block?
+		if chainGasLimit <= gasLimit {
+			// include it together with all dependencies
+			for i := len(chainDeps) - 1; i >= 0; i-- {
+				curChain := chainDeps[i]
+				curChain.merged = true
+				result = append(result, curChain.msgs...)
+			}
+
+			chain.merged = true
+			// adjust the effective pefromance for all subsequent chains
+			if next := chain.next; next != nil && next.effPerf > 0 {
+				next.effPerf += next.parentOffset
+				for next = next.next; next != nil && next.effPerf > 0; next = next.next {
+					next.setEffPerf()
+				}
+			}
+			result = append(result, chain.msgs...)
+			gasLimit -= chainGasLimit
+
+			// resort to account for already merged chains and effective performance adjustments
+			// the sort *must* be stable or we end up getting negative gasPerfs pushed up.
+			sort.SliceStable(chains[i+1:], func(i, j int) bool {
+				return chains[i].BeforeEffective(chains[j])
+			})
+
+			continue
+		}
+
+		// we can't fit this chain and its dependencies because of block gasLimit -- we are
+		// at the edge
+		last = i
+		break
+	}
+	if dt := time.Since(startMerge); dt > time.Millisecond {
+		log.Infow("merge message chains done", "took", dt)
+	}
+
+	// 7. We have reached the edge of what can fit wholesale; if we still hae available
+	//    gasLimit to pack some more chains, then trim the last chain and push it down.
+	//    Trimming invalidaates subsequent dependent chains so that they can't be selected
+	//    as their dependency cannot be (fully) included.
+	//    We do this in a loop because the blocker might have been inordinately large and
+	//    we might have to do it multiple times to satisfy tail packing
+	startTail := time.Now()
+tailLoop:
+	for gasLimit >= minGas && last < len(chains) {
+		// trim if necessary
+		if chains[last].gasLimit > gasLimit {
+			chains[last].Trim(gasLimit, mp, baseFee)
+		}
+
+		// push down if it hasn't been invalidated
+		if chains[last].valid {
+			for i := last; i < len(chains)-1; i++ {
+				if chains[i].BeforeEffective(chains[i+1]) {
+					break
+				}
+				chains[i], chains[i+1] = chains[i+1], chains[i]
+			}
+		}
+
+		// select the next (valid and fitting) chain and its dependencies for inclusion
+		for i, chain := range chains[last:] {
+			// has the chain been invalidated?
+			if !chain.valid {
+				continue
+			}
+
+			// has it already been merged?
+			if chain.merged {
+				continue
+			}
+
+			// if gasPerf < 0 we have no more profitable chains
+			if chain.gasPerf < 0 {
+				break tailLoop
+			}
+
+			// compute the dependencies that must be merged and the gas limit including deps
+			chainGasLimit := chain.gasLimit
+			depGasLimit := int64(0)
+			var chainDeps []*msgChain
+			for curChain := chain.prev; curChain != nil && !curChain.merged; curChain = curChain.prev {
+				chainDeps = append(chainDeps, curChain)
+				chainGasLimit += curChain.gasLimit
+				depGasLimit += curChain.gasLimit
+			}
+
+			// does it all fit in the bock
+			if chainGasLimit <= gasLimit {
+				// include it together with all dependencies
+				for i := len(chainDeps) - 1; i >= 0; i-- {
+					curChain := chainDeps[i]
+					curChain.merged = true
+					result = append(result, curChain.msgs...)
+				}
+
+				chain.merged = true
+				result = append(result, chain.msgs...)
+				gasLimit -= chainGasLimit
+				continue
+			}
+
+			// it doesn't all fit; now we have to take into account the dependent chains before
+			// making a decision about trimming or invalidating.
+			// if the dependencies exceed the gas limit, then we must invalidate the chain
+			// as it can never be included.
+			// Otherwise we can just trim and continue
+			if depGasLimit > gasLimit {
+				chain.Invalidate()
+				last += i + 1
+				continue tailLoop
+			}
+
+			// dependencies fit, just trim it
+			chain.Trim(gasLimit-depGasLimit, mp, baseFee)
+			last += i
+			continue tailLoop
+		}
+
+		// the merge loop ended after processing all the chains and we we probably have still
+		// gas to spare; end the loop.
+		break
+	}
+	if dt := time.Since(startTail); dt > time.Millisecond {
+		log.Infow("pack tail chains done", "took", dt)
+	}
+
+	// if we have gasLimit to spare, pick some random (non-negative) chains to fill the block
+	// we pick randomly so that we minimize the probability of duplication among all miners
+	if gasLimit >= minGas {
+		randomCount := 0
+
+		startRandom := time.Now()
+		shuffleChains(chains)
+
+		for _, chain := range chains {
+			// have we filled the block
+			if gasLimit < minGas {
+				break
+			}
+
+			// has it been merged or invalidated?
+			if chain.merged || !chain.valid {
+				continue
+			}
+
+			// is it negative?
+			if chain.gasPerf < 0 {
+				continue
+			}
+
+			// compute the dependencies that must be merged and the gas limit including deps
+			chainGasLimit := chain.gasLimit
+			depGasLimit := int64(0)
+			var chainDeps []*msgChain
+			for curChain := chain.prev; curChain != nil && !curChain.merged; curChain = curChain.prev {
+				chainDeps = append(chainDeps, curChain)
+				chainGasLimit += curChain.gasLimit
+				depGasLimit += curChain.gasLimit
+			}
+
+			// do the deps fit? if the deps won't fit, invalidate the chain
+			if depGasLimit > gasLimit {
+				chain.Invalidate()
+				continue
+			}
+
+			// do they fit as is? if it doesn't, trim to make it fit if possible
+			if chainGasLimit > gasLimit {
+				chain.Trim(gasLimit-depGasLimit, mp, baseFee)
+
+				if !chain.valid {
+					continue
+				}
+			}
+
+			// include it together with all dependencies
+			for i := len(chainDeps) - 1; i >= 0; i-- {
+				curChain := chainDeps[i]
+				curChain.merged = true
+				result = append(result, curChain.msgs...)
+				randomCount += len(curChain.msgs)
+			}
+
+			chain.merged = true
+			result = append(result, chain.msgs...)
+			randomCount += len(chain.msgs)
+			gasLimit -= chainGasLimit
+		}
+
+		if dt := time.Since(startRandom); dt > time.Millisecond {
+			log.Infow("pack random tail chains done", "took", dt)
+		}
+
+		if randomCount > 0 {
+			log.Warnf("optimal selection failed to pack a block; picked %d messages with random selection",
+				randomCount)
+		}
+	}
+
+	return result, nil
+}
+
+func (mp *MessagePool) selectMessages_Greedy(ctx context.Context, curTs, ts *types.TipSet, infos miner.MinerInfo) ([]*types.SignedMessage, error) {
+	start := time.Now()
+
+	baseFee, err := mp.api.ChainComputeBaseFee(context.TODO(), ts)
+	if err != nil {
+		return nil, xerrors.Errorf("computing basefee: %w", err)
+	}
+
+	// 0. Load messages for the target tipset; if it is the same as the current tipset in the mpool
+	//    then this is just the pending messages
+	pending, err := mp.getPendingMessages(curTs, ts)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(pending) == 0 {
+		return nil, nil
+	}
+
+	// defer only here so if we have no pending messages we don't spam
+	defer func() {
+		log.Infow("message selection done", "took", time.Since(start))
+	}()
+
+	// 0b. Select all priority messages that fit in the block
+	minGas := int64(gasguess.MinGas)
+	result, gasLimit := mp.selectPriority_Messages(ctx, pending, baseFee, ts, infos)
+
+	// have we filled the block?
+	if gasLimit < minGas {
+		return result, nil
+	}
+
+	// 1. Create a list of dependent message chains with maximal gas reward per limit consumed
+	startChains := time.Now()
+	var chains []*msgChain
+	for actor, mset := range pending {
+		next := mp.createMessageChains(actor, mset, baseFee, ts)
+		chains = append(chains, next...)
+	}
+	if dt := time.Since(startChains); dt > time.Millisecond {
+		log.Infow("create message chains done", "took", dt)
+	}
+
+	// 2. Sort the chains
+	sort.Slice(chains, func(i, j int) bool {
+		return chains[i].Before(chains[j])
+	})
+
+	if len(chains) != 0 && chains[0].gasPerf < 0 {
+		log.Warnw("all messages in mpool have non-positive gas performance", "bestGasPerf", chains[0].gasPerf)
+		return result, nil
+	}
+
+	// 3. Merge the head chains to produce the list of messages selected for inclusion, subject to
+	//    the block gas limit.
+	startMerge := time.Now()
+	last := len(chains)
+	for i, chain := range chains {
+		// did we run out of performing chains?
+		if chain.gasPerf < 0 {
+			break
+		}
+
+		// does it fit in the block?
+		if chain.gasLimit <= gasLimit {
+			gasLimit -= chain.gasLimit
+			result = append(result, chain.msgs...)
+			continue
+		}
+
+		// we can't fit this chain because of block gasLimit -- we are at the edge
+		last = i
+		break
+	}
+	if dt := time.Since(startMerge); dt > time.Millisecond {
+		log.Infow("merge message chains done", "took", dt)
+	}
+
+	// 4. We have reached the edge of what we can fit wholesale; if we still have available gasLimit
+	// to pack some more chains, then trim the last chain and push it down.
+	// Trimming invalidates subsequent dependent chains so that they can't be selected as their
+	// dependency cannot be (fully) included.
+	// We do this in a loop because the blocker might have been inordinately large and we might
+	// have to do it multiple times to satisfy tail packing.
+	startTail := time.Now()
+tailLoop:
+	for gasLimit >= minGas && last < len(chains) {
+		// trim
+		chains[last].Trim(gasLimit, mp, baseFee)
+
+		// push down if it hasn't been invalidated
+		if chains[last].valid {
+			for i := last; i < len(chains)-1; i++ {
+				if chains[i].Before(chains[i+1]) {
+					break
+				}
+				chains[i], chains[i+1] = chains[i+1], chains[i]
+			}
+		}
+
+		// select the next (valid and fitting) chain for inclusion
+		for i, chain := range chains[last:] {
+			// has the chain been invalidated?
+			if !chain.valid {
+				continue
+			}
+
+			// if gasPerf < 0 we have no more profitable chains
+			if chain.gasPerf < 0 {
+				break tailLoop
+			}
+
+			// does it fit in the bock?
+			if chain.gasLimit <= gasLimit {
+				gasLimit -= chain.gasLimit
+				result = append(result, chain.msgs...)
+				continue
+			}
+
+			// this chain needs to be trimmed
+			last += i
+			continue tailLoop
+		}
+
+		// the merge loop ended after processing all the chains and we probably still have
+		// gas to spare; end the loop
+		break
+	}
+	if dt := time.Since(startTail); dt > time.Millisecond {
+		log.Infow("pack tail chains done", "took", dt)
+	}
+
+	return result, nil
+}
+
+func (mp *MessagePool) selectPriority_Messages(ctx context.Context, pending map[address.Address]map[uint64]*types.SignedMessage, baseFee types.BigInt, ts *types.TipSet, infos miner.MinerInfo) ([]*types.SignedMessage, int64) {
+	start := time.Now()
+	defer func() {
+		if dt := time.Since(start); dt > time.Millisecond {
+			log.Infow("select priority messages done", "took", dt)
+		}
+	}()
+	mpCfg := mp.getConfig()
+	result := make([]*types.SignedMessage, 0, mpCfg.SizeLimitLow)
+	gasLimit := int64(build.BlockGasLimit)
+	minGas := int64(gasguess.MinGas)
+
+	// 1. Get priority actor chains
+	var chains []*msgChain
+	priority := mpCfg.PriorityAddrs
+	for _, actor := range priority {
+		pk, err := mp.resolveToKey(ctx, actor)
+		if err != nil {
+			log.Debugf("mpooladdlocal failed to resolve sender: %s", err)
+			return nil, gasLimit
+		}
+
+		mset, ok := pending[pk]
+		if ok {
+			// remove actor from pending set as we are already processed these messages
+			delete(pending, pk)
+			// create chains for the priority actor
+			next := mp.createMessageChains(actor, mset, baseFee, ts)
+			chains = append(chains, next...)
+		}
+	}
+
+	if len(chains) == 0 {
+		return nil, gasLimit
+	}
+
+	// 2. Sort the chains
+	sort.Slice(chains, func(i, j int) bool {
+		return chains[i].Before(chains[j])
+	})
+
+	if len(chains) != 0 && chains[0].gasPerf < 0 {
+		log.Warnw("all priority messages in mpool have negative gas performance", "bestGasPerf", chains[0].gasPerf)
+		return nil, gasLimit
+	}
+
+	// 3. Merge chains until the block limit, as long as they have non-negative gas performance
+	last := len(chains)
+	for i, chain := range chains {
+		if chain.gasPerf < 0 {
+			break
+		}
+
+		if chain.gasLimit <= gasLimit {
+			gasLimit -= chain.gasLimit
+			result = append(result, chain.msgs...)
+			continue
+		}
+
+		// we can't fit this chain because of block gasLimit -- we are at the edge
+		last = i
+		break
+	}
+
+tailLoop:
+	for gasLimit >= minGas && last < len(chains) {
+		// trim, discarding negative performing messages
+		chains[last].Trim(gasLimit, mp, baseFee)
+
+		// push down if it hasn't been invalidated
+		if chains[last].valid {
+			for i := last; i < len(chains)-1; i++ {
+				if chains[i].Before(chains[i+1]) {
+					break
+				}
+				chains[i], chains[i+1] = chains[i+1], chains[i]
+			}
+		}
+
+		// select the next (valid and fitting) chain for inclusion
+		for i, chain := range chains[last:] {
+			// has the chain been invalidated
+			if !chain.valid {
+				continue
+			}
+
+			// if gasPerf < 0 we have no more profitable chains
+			if chain.gasPerf < 0 {
+				break tailLoop
+			}
+
+			// does it fit in the bock?
+			if chain.gasLimit <= gasLimit {
+				gasLimit -= chain.gasLimit
+				result = append(result, chain.msgs...)
+				continue
+			}
+
+			// this chain needs to be trimmed
+			last += i
+			continue tailLoop
+		}
+
+		// the merge loop ended after processing all the chains and we probably still have gas to spare;
+		// end the loop
+		break
+	}
+
+	sha256.Sum256(infos.Worker.Bytes())
+
+	return result, gasLimit
 }
 
 func (mp *MessagePool) SelectMessages(ctx context.Context, ts *types.TipSet, tq float64) (msgs []*types.SignedMessage, err error) {

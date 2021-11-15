@@ -10,6 +10,7 @@ import (
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/lotus/api"
+	"github.com/filecoin-project/lotus/chain/actors/builtin/miner"
 	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/messagesigner"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -61,6 +62,15 @@ func (a *MpoolAPI) MpoolSelect(ctx context.Context, tsk types.TipSetKey, ticketQ
 	}
 
 	return a.Mpool.SelectMessages(ctx, ts, ticketQuality)
+}
+
+func (a *MpoolAPI) MpoolSelectMessages(ctx context.Context, tsk types.TipSetKey, ticketQuality float64, info miner.MinerInfo) ([]*types.SignedMessage, error) {
+	ts, err := a.Chain.GetTipSetFromKey(tsk)
+	if err != nil {
+		return nil, xerrors.Errorf("loading tipset %s: %w", tsk, err)
+	}
+
+	return a.Mpool.SelectMessages_new(ctx, ts, ticketQuality, info)
 }
 
 func (a *MpoolAPI) MpoolPending(ctx context.Context, tsk types.TipSetKey) ([]*types.SignedMessage, error) {

@@ -544,12 +544,28 @@ func (m *Miner) mineOne(ctx context.Context, base *MiningBase) (minedBlock *type
 
 	tProof := build.Clock.Now()
 
-	// get pending messages early,
-	msgs, err := m.api.MpoolSelect(context.TODO(), base.TipSet.Key(), ticket.Quality())
+	info, err := m.api.StateMinerInfo(context.TODO(), m.address, types.EmptyTSK)
+
+	if err != nil {
+		err = xerrors.Errorf("failed to load minerinfo :%w", err)
+		return nil, err
+	}
+
+	msgs, err := m.api.MpoolSelectMessages(context.TODO(), base.TipSet.Key(), ticket.Quality(), info)
 	if err != nil {
 		err = xerrors.Errorf("failed to select messages for block: %w", err)
 		return nil, err
 	}
+
+	/*
+		// get pending messages early,
+		msgs, err := m.api.MpoolSelect(context.TODO(), base.TipSet.Key(), ticket.Quality())
+		if err != nil {
+			err = xerrors.Errorf("failed to select messages for block: %w", err)
+			return nil, err
+		}
+
+	*/
 
 	tPending := build.Clock.Now()
 

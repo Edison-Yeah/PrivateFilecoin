@@ -99,6 +99,7 @@
   * [MpoolPushMessage](#MpoolPushMessage)
   * [MpoolPushUntrusted](#MpoolPushUntrusted)
   * [MpoolSelect](#MpoolSelect)
+  * [MpoolSelectMessages](#MpoolSelectMessages)
   * [MpoolSetConfig](#MpoolSetConfig)
   * [MpoolSub](#MpoolSub)
 * [Msig](#Msig)
@@ -2422,6 +2423,42 @@ Inputs:
     }
   ],
   12.3
+]
+```
+
+Response: `null`
+
+### MpoolSelectMessages
+MpoolSelect returns a list of pending messages for inclusion in the next block
+
+
+Perms: read
+
+Inputs:
+```json
+[
+  [
+    {
+      "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+    },
+    {
+      "/": "bafy2bzacebp3shtrn43k7g3unredz7fxn4gj533d3o43tqn2p2ipxxhrvchve"
+    }
+  ],
+  12.3,
+  {
+    "Owner": "f01234",
+    "Worker": "f01234",
+    "NewWorker": "f01234",
+    "ControlAddresses": null,
+    "WorkerChangeEpoch": 10101,
+    "PeerId": "12D3KooWGzxzKZYveHXtpG6AsrUJBcWxHBFS2HsEoGTxrMLvKXtf",
+    "Multiaddrs": null,
+    "WindowPoStProofType": 8,
+    "SectorSize": 34359738368,
+    "WindowPoStPartitionSectors": 42,
+    "ConsensusFaultElapsed": 10101
+  }
 ]
 ```
 

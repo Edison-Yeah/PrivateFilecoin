@@ -241,6 +241,9 @@ type FullNode interface {
 	// MpoolSelect returns a list of pending messages for inclusion in the next block
 	MpoolSelect(context.Context, types.TipSetKey, float64) ([]*types.SignedMessage, error) //perm:read
 
+	// MpoolSelect returns a list of pending messages for inclusion in the next block
+	MpoolSelectMessages(context.Context, types.TipSetKey, float64, miner.MinerInfo) ([]*types.SignedMessage, error) //perm:read
+
 	// MpoolPush pushes a signed message to mempool.
 	MpoolPush(context.Context, *types.SignedMessage) (cid.Cid, error) //perm:write
 

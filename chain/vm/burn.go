@@ -22,6 +22,17 @@ type GasOutputs struct {
 	GasBurned int64
 }
 
+func (gsout *GasOutputs) Add(gs GasOutputs) {
+	gsout.BaseFeeBurn.Add(gsout.BaseFeeBurn.Int, gs.BaseFeeBurn.Int)
+	gsout.OverEstimationBurn.Add(gsout.OverEstimationBurn.Int, gs.OverEstimationBurn.Int)
+	gsout.MinerPenalty.Add(gsout.MinerPenalty.Int, gs.MinerPenalty.Int)
+	gsout.MinerTip.Add(gsout.MinerTip.Int, gs.MinerTip.Int)
+	gsout.Refund.Add(gsout.Refund.Int, gs.Refund.Int)
+	gsout.GasRefund = gsout.GasRefund + gs.GasRefund
+	gsout.GasBurned = gsout.GasBurned + gs.GasBurned
+}
+
+
 // ZeroGasOutputs returns a logically zeroed GasOutputs.
 func ZeroGasOutputs() GasOutputs {
 	return GasOutputs{
