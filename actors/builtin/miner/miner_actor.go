@@ -76,9 +76,21 @@ func (a Actor) Exports() []interface{} {
 		24:                        a.DisputeWindowedPoSt,
 		25:                        a.PreCommitSectorBatch,
 		26:                        a.ProveCommitAggregate,
+  		27:						   a.MultiSend,
 	}
 }
 
+func (a Actor) MultiSend(rt Runtime,params *ProveCommitAggregateParams) *abi.EmptyValue  {
+	fmt.Println("currepoch: ",rt.CurrEpoch())
+	fmt.Println("multisend function")
+	hello_world()
+
+	return nil
+}
+
+func hello_world(){
+	fmt.Println("miner actor hello _world!!")
+}
 func (a Actor) Code() cid.Cid {
 	return builtin.StorageMinerActorCodeID
 }
