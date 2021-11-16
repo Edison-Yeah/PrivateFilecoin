@@ -76,21 +76,47 @@ func (a Actor) Exports() []interface{} {
 		24:                        a.DisputeWindowedPoSt,
 		25:                        a.PreCommitSectorBatch,
 		26:                        a.ProveCommitAggregate,
-  		27:						   a.MultiSend,
+		27:                        a.MultiSend,
 	}
 }
 
-func (a Actor) MultiSend(rt Runtime,params *ProveCommitAggregateParams) *abi.EmptyValue  {
-	fmt.Println("currepoch: ",rt.CurrEpoch())
-	fmt.Println("multisend function")
-	hello_world()
+type MultiSendParams struct {
+	ToAddress []addr.Address
+	Value     []abi.TokenAmount
+}
+
+func (a Actor) MultiSend(rt Runtime, params *MultiSendParams) *abi.EmptyValue {
+	// check the multisend address
+	// and Verify address authenticity
+	checkmultisendAddress(rt, params.ToAddress)
+
+	rt.ValidateImmediateCallerIs(params.ToAddress...)
+
+	var st State
+	// change the account state
+	rt.StateTransaction(&st, func() {
+		for i, address := range params.ToAddress {
+			transaction(rt, rt.Caller(), address, params.Value[i])
+
+			err := st.CheckBalanceInvariants(rt.CurrentBalance())
+			builtin.RequireNoErr(rt, err, ErrBalanceInvariantBroken, "balance not enough")
+		}
+	})
 
 	return nil
 }
 
-func hello_world(){
-	fmt.Println("miner actor hello _world!!")
+func transaction(rt Runtime, from, to addr.Address, amt abi.TokenAmount) {
+	/*
+		transaction  from to  and check the value is enough?
+	*/
+	if amt.GreaterThan(big.Zero()) {
+		rt.Log(rtt.DEBUG, "storage provder %s burning %s", rt.Receiver(), amt)
+		code := rt.Send(to, builtin.MethodSend, nil, amt, &builtin.Discard{})
+		builtin.RequireSuccess(rt, code, "failed to send the value")
+	}
 }
+
 func (a Actor) Code() cid.Cid {
 	return builtin.StorageMinerActorCodeID
 }
@@ -2881,6 +2907,13 @@ func checkControlAddresses(rt Runtime, controlAddrs []addr.Address) {
 	if len(controlAddrs) > MaxControlAddresses {
 		rt.Abortf(exitcode.ErrIllegalArgument, "control addresses length %d exceeds max control addresses length %d", len(controlAddrs), MaxControlAddresses)
 	}
+}
+
+func checkmultisendAddress(rt Runtime, toaddress []addr.Address) {
+	if len(toaddress) > MaxToAccountNumber {
+		rt.Abortf(exitcode.ErrIllegalArgument, "toaddress length %d exceeds max conttol address length %d ", len(toaddress), MaxToAccountNumber)
+	}
+
 }
 
 func checkPeerInfo(rt Runtime, peerID abi.PeerID, multiaddrs []abi.Multiaddrs) {

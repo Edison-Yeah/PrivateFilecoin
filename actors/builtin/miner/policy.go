@@ -35,6 +35,9 @@ const WPoStPeriodDeadlines = uint64(48) // PARAM_SPEC
 // So, to support upto 10Eib storage, we set this to 3000.
 const MaxPartitionsPerDeadline = 3000
 
+// MAxAccountNumber  is maximum number of Accounts that of the messages to address
+const MaxToAccountNumber = 5
+
 func init() {
 	// Check that the challenge windows divide the proving period evenly.
 	if WPoStProvingPeriod%WPoStChallengeWindow != 0 {

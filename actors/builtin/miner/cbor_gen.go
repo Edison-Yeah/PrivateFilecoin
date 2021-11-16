@@ -2645,3 +2645,108 @@ func (t *PreCommitSectorBatchParams) UnmarshalCBOR(r io.Reader) error {
 
 	return nil
 }
+
+// we must be implment the method MarshalCBOR
+var lengthBufMultiSendParams = []byte{130}
+
+func (t *MultiSendParams) MarshalCBOR(w io.Writer) error {
+	if t == nil {
+		_, err := w.Write(cbg.CborNull)
+		return err
+	}
+	if _, err := w.Write(lengthBufMultiSendParams); err != nil {
+		return err
+	}
+
+	scratch := make([]byte, 9)
+
+	// t.Value (abi.tokeamount)(array)
+	if len(t.Value) > cbg.ByteArrayMaxLen {
+		return xerrors.Errorf("Byte array in field t.AggregateProof was too long")
+	}
+	if err := cbg.WriteMajorTypeHeaderBuf(scratch, w, cbg.MajArray, uint64(len(t.Value))); err != nil {
+		return err
+	}
+
+	for _, amount := range t.Value {
+		if err := amount.MarshalCBOR(w); err != nil {
+			return err
+		}
+	}
+
+	// t.ToAddress ([]addr.Address) (array)
+	if len(t.ToAddress) > cbg.ByteArrayMaxLen {
+		return xerrors.Errorf("Byte array in field t.AggregateProof was too long")
+	}
+
+	if err := cbg.WriteMajorTypeHeaderBuf(scratch, w, cbg.MajByteString, uint64(len(t.ToAddress))); err != nil {
+		return err
+	}
+
+	for _, toAddress := range t.ToAddress {
+		if err := toAddress.MarshalCBOR(w); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (t *MultiSendParams) UnmarshalCBOR(r io.Reader) error {
+	*t = MultiSendParams{}
+
+	br := cbg.GetPeeker(r)
+	scratch := make([]byte, 8)
+
+	maj, extra, err := cbg.CborReadHeaderBuf(br, scratch)
+	if err != nil {
+		return err
+	}
+	if maj != cbg.MajArray {
+		return fmt.Errorf("cbor input should be of type array")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("t.Value array to large(%d)", extra)
+	}
+
+	// t.Value ([]abi.tokeamount)(array)
+	if extra > 0 {
+		t.Value = make([]abi.TokenAmount, extra)
+
+	}
+	for i := 0; i < int(extra); i++ {
+		var v abi.TokenAmount
+		if err := v.UnmarshalCBOR(br); err != nil {
+			return err
+		}
+		t.Value[i] = v
+	}
+
+	// t.ToAddress ([]addr.Address) (array)
+	maj, extra, err = cbg.CborReadHeaderBuf(br, scratch)
+	if err != nil {
+		return err
+	}
+	if maj != cbg.MajArray {
+		return fmt.Errorf("cbor input should be of type array")
+	}
+
+	if extra > cbg.MaxLength {
+		return fmt.Errorf("t.ToAddress array to large(%d)", extra)
+	}
+
+	if extra > 0 {
+		t.ToAddress = make([]address.Address, extra)
+	}
+
+	for i := 0; i < int(extra); i++ {
+		var v address.Address
+		if err := v.UnmarshalCBOR(br); err != nil {
+			return err
+		}
+		t.ToAddress[i] = v
+	}
+	
+	return nil
+}
