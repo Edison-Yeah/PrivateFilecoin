@@ -32,6 +32,15 @@ func (gsout *GasOutputs) Add(gs GasOutputs) {
 	gsout.GasBurned = gsout.GasBurned + gs.GasBurned
 }
 
+func (gsout *GasOutputs) Update(gs GasOutputs) {
+	gsout.BaseFeeBurn.Add(gsout.BaseFeeBurn.Int, gs.BaseFeeBurn.Int)
+	gsout.OverEstimationBurn.Add(gsout.OverEstimationBurn.Int, gs.OverEstimationBurn.Int)
+	gsout.MinerPenalty.Add(gsout.MinerPenalty.Int, gs.MinerPenalty.Int)
+	gsout.MinerTip.Add(gsout.MinerTip.Int, gs.MinerTip.Int)
+	gsout.Refund = gs.Refund
+	gsout.GasBurned = gsout.GasBurned + gs.GasBurned
+}
+
 
 // ZeroGasOutputs returns a logically zeroed GasOutputs.
 func ZeroGasOutputs() GasOutputs {

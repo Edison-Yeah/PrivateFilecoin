@@ -191,29 +191,22 @@ var multisendCmd = &cli.Command{
 			Usage: "specify the nonce to use",
 			Value: 0,
 		},
-		&cli.Uint64Flag{
-			Name:  "method",
-			Usage: "specify method to invoke",
-			Value: uint64(builtin6.MethodSend),
-		},
+		//&cli.Uint64Flag{
+		//	Name:  "method",
+		//	Usage: "specify method to invoke",
+		//	Value: uint64(builtin6.MethodSend),
+		//},
 
 		&cli.StringFlag{
 			Name:  "params-json",
 			Usage: "specify invocation parameters in json",
 		},
-		&cli.StringFlag{
-			Name:  "params-hex",
-			Usage: "specify invocation parameters in hex",
-		},
+		//&cli.StringFlag{
+		//	Name:  "params-hex",
+		//	Usage: "specify invocation parameters in hex",
+		//},
 	},
 	Action: func(cctx *cli.Context) error {
-		if cctx.IsSet("force") {
-			fmt.Println("'force' flag is deprecated, use global flag 'force-send'")
-		}
-
-		if cctx.Args().Len() != 2 {
-			return ShowHelp(cctx, fmt.Errorf("'send' expects two arguments, target and amount"))
-		}
 
 		srv, err := GetFullNodeServices(cctx)
 		if err != nil {
@@ -224,16 +217,16 @@ var multisendCmd = &cli.Command{
 		ctx := ReqContext(cctx)
 		var params SendParams
 
-		params.To, err = address.NewFromString(cctx.Args().Get(0))
-		if err != nil {
-			return ShowHelp(cctx, fmt.Errorf("failed to parse target address: %w", err))
-		}
-
-		val, err := types.ParseFIL(cctx.Args().Get(1))
-		if err != nil {
-			return ShowHelp(cctx, fmt.Errorf("failed to parse amount: %w", err))
-		}
-		params.Val = abi.TokenAmount(val)
+		//params.To, err = address.NewFromString(cctx.Args().Get(0))
+		//if err != nil {
+		//	return ShowHelp(cctx, fmt.Errorf("failed to parse target address: %w", err))
+		//}
+		//
+		//val, err := types.ParseFIL(cctx.Args().Get(1))
+		//if err != nil {
+		//	return ShowHelp(cctx, fmt.Errorf("failed to parse amount: %w", err))
+		//}
+		//params.Val = abi.TokenAmount(val)
 
 		if from := cctx.String("from"); from != "" {
 			addr, err := address.NewFromString(from)
@@ -265,7 +258,7 @@ var multisendCmd = &cli.Command{
 			params.GasLimit = &limit
 		}
 
-		params.Method = abi.MethodNum(cctx.Uint64("method"))
+		params.Method = abi.MethodNum(types.MultiMsgMethod)
 
 		if cctx.IsSet("params-json") {
 			decparams, err := srv.DecodeTypedParamsFromJSON(ctx, params.To, params.Method, cctx.String("params-json"))
@@ -274,23 +267,15 @@ var multisendCmd = &cli.Command{
 			}
 			params.Params = decparams
 		}
-		if cctx.IsSet("params-hex") {
-			if params.Params != nil {
-				return fmt.Errorf("can only specify one of 'params-json' and 'params-hex'")
-			}
-			decparams, err := hex.DecodeString(cctx.String("params-hex"))
-			if err != nil {
-				return fmt.Errorf("failed to decode hex params: %w", err)
-			}
-			params.Params = decparams
-		}
 
 		if cctx.IsSet("nonce") {
 			n := cctx.Uint64("nonce")
 			params.Nonce = &n
 		}
+		params.To, _ = address.NewFromString("t00")
+		params.Val = abi.NewTokenAmount(0)
 
-		proto, err := srv.MultimessageForSend(ctx, params)
+		proto, err := srv.MessageForSend(ctx, params)
 		if err != nil {
 			return xerrors.Errorf("creating message prototype: %w", err)
 		}

@@ -84,6 +84,11 @@ func (s *ServicesImpl) GetBaseFee(ctx context.Context) (abi.TokenAmount, error) 
 }
 
 func (s *ServicesImpl) DecodeTypedParamsFromJSON(ctx context.Context, to address.Address, method abi.MethodNum, paramstr string) ([]byte, error) {
+
+	if method == types.MultiMsgMethod {
+		return s.DecodeTypeParamsFromJsonMulti(ctx, to, method, paramstr)
+	}
+
 	act, err := s.api.StateGetActor(ctx, to, types.EmptyTSK)
 	if err != nil {
 		return nil, err
@@ -105,6 +110,32 @@ func (s *ServicesImpl) DecodeTypedParamsFromJSON(ctx context.Context, to address
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+func (s *ServicesImpl) DecodeTypeParamsFromJsonMulti(ctx context.Context, to address.Address, method abi.MethodNum, paramstr string) ([]byte, error) {
+	var multiParams types.ClassicalParams
+	err := json.Unmarshal([]byte(paramstr), &multiParams)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range multiParams.Params {
+		act, err := s.api.StateGetActor(ctx, v.To, types.EmptyTSK)
+		if err != nil {
+			return nil, err
+		}
+
+		methodMeta, found := filcns.NewActorRegistry().Methods[act.Code][v.Method] // TODO: use remote map
+		if !found {
+			return nil, fmt.Errorf("method %d not found on actor %s", method, act.Code)
+		}
+
+		p := reflect.New(methodMeta.Params.Elem()).Interface().(cbg.CBORMarshaler)
+
+		if err := json.Unmarshal([]byte(paramstr), p); err != nil {
+			return nil, fmt.Errorf("unmarshaling input into params type: %w", err)
+		}
+	}
+	return []byte(paramstr), nil
 }
 
 type CheckInfo struct {
