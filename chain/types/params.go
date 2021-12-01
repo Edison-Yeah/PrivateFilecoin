@@ -12,10 +12,10 @@ type MultiParams interface {
 
 
 type Receive struct {
-	To   address.Address
-	Value abi.TokenAmount
-	Method abi.MethodNum
-	Params []byte
+	To   address.Address   	`json:"to"`
+	Value abi.TokenAmount   `json:"value"`
+	Method abi.MethodNum    `json:"method"`
+	Params []byte           `json:"params"`
 }
 
 type ClassicalParams struct {

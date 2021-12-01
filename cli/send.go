@@ -217,17 +217,6 @@ var multisendCmd = &cli.Command{
 		ctx := ReqContext(cctx)
 		var params SendParams
 
-		//params.To, err = address.NewFromString(cctx.Args().Get(0))
-		//if err != nil {
-		//	return ShowHelp(cctx, fmt.Errorf("failed to parse target address: %w", err))
-		//}
-		//
-		//val, err := types.ParseFIL(cctx.Args().Get(1))
-		//if err != nil {
-		//	return ShowHelp(cctx, fmt.Errorf("failed to parse amount: %w", err))
-		//}
-		//params.Val = abi.TokenAmount(val)
-
 		if from := cctx.String("from"); from != "" {
 			addr, err := address.NewFromString(from)
 			if err != nil {

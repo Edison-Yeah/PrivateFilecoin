@@ -118,10 +118,20 @@ func (s *ServicesImpl) DecodeTypeParamsFromJsonMulti(ctx context.Context, to add
 	if err != nil {
 		return nil, err
 	}
+	length := len(multiParams.Params)
+	if length == 0 {
+		return nil, fmt.Errorf("empty params is not permited in multisend")
+	} else if length > 100 {
+		return nil, fmt.Errorf("the number of multimsg is range 0 to 100, received: %v", length)
+	}
 	for _, v := range multiParams.Params {
 		act, err := s.api.StateGetActor(ctx, v.To, types.EmptyTSK)
 		if err != nil {
 			return nil, err
+		}
+		if v.Method != 0 {
+			//TODO other method not permitted now.
+			return nil, fmt.Errorf("method expected %v, received %v", 0, v.Method.String())
 		}
 
 		methodMeta, found := filcns.NewActorRegistry().Methods[act.Code][v.Method] // TODO: use remote map

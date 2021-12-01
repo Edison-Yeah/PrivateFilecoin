@@ -5,35 +5,35 @@
       "Type": "account",
       "Balance": "50000000000000000000000000",
       "Meta": {
-        "Owner": "t3wdsdvhcpyywnobpfnnolpvrfa6t6rgqvvockj4v2nfyk6kva5q6ovhfdgmiyqaveze45lqzukfl363jlv4mq"
+        "Owner": "t3qxvxadd4srnckrdzfntpi24iaafl3qdwmiyfrmskjnahin4c5em2rbqiy72i5ojppa2mozcb3n3i3wrmpbga"
       }
     }
   ],
   "Miners": [
     {
       "ID": "t01000",
-      "Owner": "t3wdsdvhcpyywnobpfnnolpvrfa6t6rgqvvockj4v2nfyk6kva5q6ovhfdgmiyqaveze45lqzukfl363jlv4mq",
-      "Worker": "t3wdsdvhcpyywnobpfnnolpvrfa6t6rgqvvockj4v2nfyk6kva5q6ovhfdgmiyqaveze45lqzukfl363jlv4mq",
-      "PeerId": "12D3KooWJivGrgwo3Ue8UA9DAquNP5BzrSYj1VDRmEM23rueS5FH",
+      "Owner": "t3qxvxadd4srnckrdzfntpi24iaafl3qdwmiyfrmskjnahin4c5em2rbqiy72i5ojppa2mozcb3n3i3wrmpbga",
+      "Worker": "t3qxvxadd4srnckrdzfntpi24iaafl3qdwmiyfrmskjnahin4c5em2rbqiy72i5ojppa2mozcb3n3i3wrmpbga",
+      "PeerId": "12D3KooWQ3kiLFK8T4AEcXmWZJTpdUXFctBZ8GGkcTZdJNtotAvh",
       "MarketBalance": "0",
       "PowerBalance": "0",
       "SectorSize": 2048,
       "Sectors": [
         {
           "CommR": {
-            "/": "bagboea4b5abcbvtvav4exgv4zp7pn5tqfuywjdficf3bityco47zgk27zolq4ljx"
+            "/": "bagboea4b5abcbjmatk4dnatwirm34uyhigcya4ubtbb3r3376xob3n76nun72tqr"
           },
           "CommD": {
-            "/": "baga6ea4seaqlmyw7rj3qgkxe6qlpcjsl2o5oc3so5p55k422ninxxr3jnx63meq"
+            "/": "baga6ea4seaqe4tjwpbv6bt3svktvuyanviukaytbdm6i54oulslfmk2yievvugi"
           },
           "SectorID": 0,
           "Deal": {
             "PieceCID": {
-              "/": "baga6ea4seaqlmyw7rj3qgkxe6qlpcjsl2o5oc3so5p55k422ninxxr3jnx63meq"
+              "/": "baga6ea4seaqe4tjwpbv6bt3svktvuyanviukaytbdm6i54oulslfmk2yievvugi"
             },
             "PieceSize": 2048,
             "VerifiedDeal": false,
-            "Client": "t3wdsdvhcpyywnobpfnnolpvrfa6t6rgqvvockj4v2nfyk6kva5q6ovhfdgmiyqaveze45lqzukfl363jlv4mq",
+            "Client": "t3qxvxadd4srnckrdzfntpi24iaafl3qdwmiyfrmskjnahin4c5em2rbqiy72i5ojppa2mozcb3n3i3wrmpbga",
             "Provider": "t01000",
             "Label": "0",
             "StartEpoch": 0,
@@ -46,19 +46,19 @@
         },
         {
           "CommR": {
-            "/": "bagboea4b5abca5jcztnko3wgdnvjfc2lunczay5i576skyh3ngoro5gl2o5vnusr"
+            "/": "bagboea4b5abcaqeontgxw3tgqktvuyykczssdju434wjhxpike7tuikekh2bdqlh"
           },
           "CommD": {
-            "/": "baga6ea4seaqe7admnbhpjxpznbmprlzchj6mqkejocexnq5a332tlahqatvf6ia"
+            "/": "baga6ea4seaqgp7og2hhh725bjsgkjzecobhgsgqgtnbya4jry66opd6hvt56any"
           },
           "SectorID": 1,
           "Deal": {
             "PieceCID": {
-              "/": "baga6ea4seaqe7admnbhpjxpznbmprlzchj6mqkejocexnq5a332tlahqatvf6ia"
+              "/": "baga6ea4seaqgp7og2hhh725bjsgkjzecobhgsgqgtnbya4jry66opd6hvt56any"
             },
             "PieceSize": 2048,
             "VerifiedDeal": false,
-            "Client": "t3wdsdvhcpyywnobpfnnolpvrfa6t6rgqvvockj4v2nfyk6kva5q6ovhfdgmiyqaveze45lqzukfl363jlv4mq",
+            "Client": "t3qxvxadd4srnckrdzfntpi24iaafl3qdwmiyfrmskjnahin4c5em2rbqiy72i5ojppa2mozcb3n3i3wrmpbga",
             "Provider": "t01000",
             "Label": "1",
             "StartEpoch": 0,
@@ -72,7 +72,7 @@
       ]
     }
   ],
-  "NetworkName": "localnet-c7a4823d-146c-4400-abfd-a84622669b49",
+  "NetworkName": "localnet-8ae4c047-1981-45e9-bcd7-c8e1c85022bd",
   "VerifregRootKey": {
     "Type": "multisig",
     "Balance": "0",
