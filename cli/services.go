@@ -125,6 +125,9 @@ func (s *ServicesImpl) DecodeTypeParamsFromJsonMulti(ctx context.Context, to add
 		return nil, fmt.Errorf("the number of multimsg is range 0 to 100, received: %v", length)
 	}
 	for _, v := range multiParams.Params {
+		if v.Method == 0 {
+			continue
+		}
 		act, err := s.api.StateGetActor(ctx, v.To, types.EmptyTSK)
 		if err != nil {
 			return nil, err

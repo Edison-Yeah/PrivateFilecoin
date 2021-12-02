@@ -136,7 +136,7 @@ func HandleMultiMsg(vm *VM, ctx context.Context, cmsg *types.Message, span *trac
 		pl := PricelistByEpoch(vm.blockHeight)
 
 		msgGas := pl.OnChainMessage(newMsg.ChainLength())
-
+		runT.allowInternal = true
 		ret, actorErr, rt := vm.send(ctx, newMsg, runT, &msgGas, start)
 		if aerrors.IsFatal(actorErr) {
 			return nil, xerrors.Errorf("[from=%s,to=%s,n=%d,m=%d,h=%d] fatal error: %w", newMsg.From, newMsg.To, newMsg.Nonce, newMsg.Method, vm.blockHeight, actorErr)
@@ -172,7 +172,6 @@ func HandleMultiMsg(vm *VM, ctx context.Context, cmsg *types.Message, span *trac
 			}
 		}
 		runT = rt
-		runT.allowInternal = true
 	}
 
 	runT.finilizeGasTracing()
